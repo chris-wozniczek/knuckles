@@ -11,7 +11,7 @@ const ease = (u) => u * u * (3 - 2 * u);
 
 const SEP = '<span class="sep">·</span>';
 const MODES = {
-  pads: { label: 'Pads', word: 'MPC', hint: `Put the ring between your thumb and index on a pad, then <b>pinch</b> to hit${SEP}bottom row = kick, snare, clap, rim` },
+  pads: { label: 'Pads', word: 'MPC', hint: `Put the ring between your thumb and index on a pad, then <b>pinch</b> to hit (either hand)${SEP}bottom row = kick, snare, clap, rim` },
   bass: { label: '808', word: '808', hint: `<b>Right hand</b> height = 808 note${SEP}<b>Pinch</b> = extra hit${SEP}<b>Left hand</b> open = drive${SEP}<b>Fist</b> = kick` },
   rolls: { label: 'Hat Rolls', word: 'ROLLS', hint: `<b>Right hand</b> up = faster hi-hat rolls${SEP}<b>Left hand</b> height = filter${SEP}<b>Hold a fist</b>, open it to <b>drop</b>` },
   flute: { label: 'Flute', word: 'FLUTE', hint: `<b>Right hand</b> up/down = melody${SEP}<b>Pinch</b> = accent${SEP}<b>Left hand</b> open = vibrato${SEP}<b>Fist</b> = boom` },

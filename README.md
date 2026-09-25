@@ -6,14 +6,14 @@
 
 **Live demo: https://chris-wozniczek.github.io/knuckles/**
 
-Knuckles uses your webcam to turn your hands into an MPC-style drum machine. Jab at the 16 pads in the air, slide gliding 808s up and down with your right hand, speed up hi-hat rolls, then clench a fist and open it to drop the beat. The 140 BPM trap beat underneath keeps it sounding good, and every note snaps to a dark scale (F Hijaz by default).
+Knuckles uses your webcam to turn your hands into an MPC-style drum machine. Aim a ring cursor between your thumb and index at the 16 pads and pinch to hit them, slide gliding 808s up and down with your right hand, speed up hi-hat rolls, then clench a fist and open it to drop the beat. A trap beat plays underneath (four to pick from), and every note snaps to the beat's key, F Hijaz by default.
 
 It's a companion to [Handel](https://github.com/chris-wozniczek/handel), the same idea done as a calm air orchestra.
 
 ## How to use
 
 1. Open the live demo. The attract screen already plays a beat with simulated hands. Press **Hear the beat** to turn the sound on.
-2. Press **Start camera** and allow access. Step back about an arm's length and keep both hands in frame.
+2. Press **Start camera** (on the attract screen, or top right while the demo plays, or `C`) and allow access. Step back about an arm's length and keep both hands in frame.
 3. Pick a mode in the dock (or press keys `1`–`4`):
 
 | Mode | What your hands do |
@@ -33,7 +33,7 @@ Moving your hands apart makes the room (reverb) bigger. Press **Record** (or `R`
 
 ## How it works
 
-- **Hand tracking:** MediaPipe Tasks Vision `HandLandmarker` runs in the browser (WASM + GPU delegate, falling back to CPU if the GPU fails) and tracks 21 landmarks on each of two hands. Landmarks are smoothed, then turned into continuous controls (height, openness, distance between hands, speed) and events (pinch, fist, fist release, downward jab).
+- **Hand tracking:** MediaPipe Tasks Vision `HandLandmarker` runs in the browser (WASM + GPU delegate, falling back to CPU if the GPU fails) and tracks 21 landmarks on each of two hands. Landmarks are smoothed, then turned into continuous controls (height, openness, distance between hands, speed) and events (pinch, fist, fist release). In Pads mode the midpoint of thumb and index tips is the aim cursor and only a pinch hits a pad.
 - **Sound:** Tone.js / Web Audio. One step sequencer drives four beat presets (tempo, swing, kick and snare patterns, hat style, 808 slides, key and a melody voice: flute, FM bells, a pitched cowbell or Rhodes-style keys). The default Tribal Trap plays a syncopated four-bar kick, clap and snare on 3, hats with rolls, a gliding 808 (sine plus saturation), a flute motif in the Hijaz scale, horn stabs and a dark pad. Everything goes through a bus compressor, reverb, delay and a limiter. Live hits are scheduled against the sequencer so they never collide.
 - **Visuals:** a WebGL shader draws the mirrored webcam as gold and purple halftone over rising smoke that reacts to the kick and to the audio spectrum. A 2D canvas on top draws the MPC pads, the step-sequencer LCD, note and roll ladders, hand skeletons, trails and particles.
 - **Demo mode:** the attract screen drives the same gesture and audio pipeline with choreographed synthetic hands, so it looks alive before you allow the camera.
