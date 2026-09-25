@@ -334,14 +334,14 @@ export class Gestures {
       h.tapSig = sig;
       h.tipHist.push({ x: P[8].x, y: P[8].y, t: now });
       while (h.tipHist.length > 2 && now - h.tipHist[0].t > 260) h.tipHist.shift();
-      if (h.tapArmed && h.tapVel > 2.4 && h.open > 0.2 && now - h.lastTap > 140) {
+      if (h.tapArmed && h.tapVel > 1.7 && h.open > 0.2 && now - h.lastTap > 140) {
         h.tapArmed = false;
         h.lastTap = now;
         // Aim with where the fingertip was just before the dip started.
         let at = h.tipHist[0];
         for (const e of h.tipHist) if (now - e.t >= 110) at = e;
-        this.emit('tap', side, { x: at.x, y: at.y, v: clamp(0.6 + (h.tapVel - 2.4) / 6, 0.6, 1) });
-      } else if (!h.tapArmed && h.tapVel < 0.5) h.tapArmed = true;
+        this.emit('tap', side, { x: at.x, y: at.y, v: clamp(0.6 + (h.tapVel - 1.7) / 6, 0.6, 1) });
+      } else if (!h.tapArmed && h.tapVel < 0.4) h.tapArmed = true;
 
       const vy = h.vel.y;
       if (h.strikeArmed && vy > 1.5 && now - h.lastStrike > 150) {

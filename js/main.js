@@ -11,7 +11,7 @@ const ease = (u) => u * u * (3 - 2 * u);
 
 const SEP = '<span class="sep">·</span>';
 const MODES = {
-  pads: { label: 'Pads', word: 'MPC', hint: `Hover a pad and <b>tap your index finger down</b> to hit it${SEP}bottom row = kick, snare, clap, rim` },
+  pads: { label: 'Pads', word: 'MPC', hint: `<b>Flick your fingertip onto a pad</b> and stop on it to hit${SEP}bottom row = kick, snare, clap, rim` },
   bass: { label: '808', word: '808', hint: `<b>Right hand</b> height = 808 note${SEP}<b>Pinch</b> = extra hit${SEP}<b>Left hand</b> open = drive${SEP}<b>Fist</b> = kick` },
   rolls: { label: 'Hat Rolls', word: 'ROLLS', hint: `<b>Right hand</b> up = faster hi-hat rolls${SEP}<b>Left hand</b> height = filter${SEP}<b>Hold a fist</b>, open it to <b>drop</b>` },
   flute: { label: 'Flute', word: 'FLUTE', hint: `<b>Right hand</b> up/down = melody${SEP}<b>Pinch</b> = accent${SEP}<b>Left hand</b> open = vibrato${SEP}<b>Fist</b> = boom` },
@@ -309,25 +309,43 @@ function padAt(nx, ny, g = padGrid()) {
   }
   return -1;
 }
-/* Entering the grid from outside hits the pad you land on; sliding between neighbouring pads doesn't.
-   Inside the grid, a finger tap (see Gestures 'tap'), jab or pinch hits whatever pad is under the fingertip. */
-const padTouchState = { left: { pad: -1, t: 0, inGrid: true }, right: { pad: -1, t: 0, inGrid: true } };
+/* A pad hits when the fingertip moves quickly and then stops on it (a drumstick landing), when it slides
+   into the grid from outside, or on a finger tap / jab / pinch. Gliding across pads without stopping never hits. */
+const PAD_FAST = 0.8, PAD_STOP = 0.28;
+const newPadTouch = () => ({ pad: -1, t: 0, inGrid: true, prev: null, v: 0, peak: 0, peakT: 0, lastNow: 0 });
+const padTouchState = { left: newPadTouch(), right: newPadTouch() };
 function inGrid(nx, ny, g, m) {
   const px = nx * visuals.W, py = ny * visuals.H;
   return px >= g.x0 - m && px <= g.x0 + g.size + m && py >= g.y0 - m && py <= g.y0 + g.size + m;
 }
 function padTouch(now, g) {
+  const aspect = visuals.W / visuals.H;
   for (const side of ['left', 'right']) {
     const h = gestures.hands[side], ps = padTouchState[side];
-    if (!h.present || !h.pts) { ps.pad = -1; ps.inGrid = true; continue; }
+    if (!h.present || !h.pts) { Object.assign(ps, newPadTouch(), { t: ps.t }); continue; }
     const tip = h.pts[8];
+    const dt = clamp((now - ps.lastNow) / 1000, 0, 0.1);
+    ps.lastNow = now;
+    if (ps.prev && dt > 0) {
+      const sp = Math.hypot((tip.x - ps.prev.x) * aspect, tip.y - ps.prev.y) / dt;
+      ps.v = lerp(ps.v, sp, 1 - Math.exp(-dt * 25));
+    }
+    ps.prev = { x: tip.x, y: tip.y };
+    if (ps.v > PAD_FAST) { ps.peak = Math.max(ps.peak, ps.v); ps.peakT = now; }
     const i = padAt(tip.x, tip.y, g);
     if (!ps.inGrid) {
       if (i >= 0) {
         ps.inGrid = true;
-        if (now - ps.t > 70) { hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1)); ps.t = now; }
+        if (now - ps.t > 70) { hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1)); ps.t = now; ps.peak = 0; }
       }
     } else if (!inGrid(tip.x, tip.y, g, g.gap + g.cell * 0.15)) ps.inGrid = false;
+    if (ps.peak > 0 && ps.v < PAD_STOP) {
+      if (i >= 0 && now - ps.peakT < Math.max(260, dt * 3000) && now - ps.t > 110) {
+        hitPad(i, clamp(0.6 + (ps.peak - PAD_FAST) / 3, 0.6, 1));
+        ps.t = now;
+      }
+      ps.peak = 0;
+    }
     ps.pad = i;
   }
 }
