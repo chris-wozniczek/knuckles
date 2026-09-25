@@ -219,6 +219,11 @@ class HandState {
     this.lostAt = 0;
     this.strikeArmed = true;
     this.lastStrike = 0;
+    this.tapArmed = true;
+    this.lastTap = 0;
+    this.tapSig = null;
+    this.tapVel = 0;
+    this.tipHist = [];
   }
 }
 
@@ -322,7 +327,22 @@ export class Gestures {
         } else if (h.touch[f] && r > 0.45) h.touch[f] = false;
       }
 
-      // Downward strike (air drums)
+      // Finger tap: the index tip dips toward its knuckle (like tapping a table). Measured relative
+      // to the hand, so moving the whole hand around never fires it.
+      const sig = (P[8].y - P[5].y) / size - 0.5 * (dist(P[8], P[5], aspect) / size);
+      if (h.tapSig !== null && dt > 0) h.tapVel = lerp(h.tapVel, (sig - h.tapSig) / dt, 1 - Math.exp(-dt * 20));
+      h.tapSig = sig;
+      h.tipHist.push({ x: P[8].x, y: P[8].y, t: now });
+      while (h.tipHist.length > 2 && now - h.tipHist[0].t > 260) h.tipHist.shift();
+      if (h.tapArmed && h.tapVel > 2.4 && h.open > 0.2 && now - h.lastTap > 140) {
+        h.tapArmed = false;
+        h.lastTap = now;
+        // Aim with where the fingertip was just before the dip started.
+        let at = h.tipHist[0];
+        for (const e of h.tipHist) if (now - e.t >= 110) at = e;
+        this.emit('tap', side, { x: at.x, y: at.y, v: clamp(0.6 + (h.tapVel - 2.4) / 6, 0.6, 1) });
+      } else if (!h.tapArmed && h.tapVel < 0.5) h.tapArmed = true;
+
       const vy = h.vel.y;
       if (h.strikeArmed && vy > 1.5 && now - h.lastStrike > 150) {
         h.strikeArmed = false;

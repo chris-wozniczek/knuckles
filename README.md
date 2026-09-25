@@ -18,7 +18,7 @@ It's a companion to [Handel](https://github.com/chris-wozniczek/handel), the sam
 
 | Mode | What your hands do |
 | --- | --- |
-| **Pads** | Tap into a pad with your index fingertip (or pinch over it) to hit it. Bottom row: kick, snare, clap, rim. Then hats and log drum, four 808 notes, and flute, horn, riser and crash on top. |
+| **Pads** | Hover a pad and tap your index finger down to hit it: the tap is measured against your knuckle, so moving your hand between pads never fires by accident and you can repeat the same pad without leaving it. Sliding in from outside the grid, a downward jab or a pinch also hit. Bottom row: kick, snare, clap, rim. Then hats and log drum, four 808 notes, and flute, horn, riser and crash on top. |
 | **808** | Right-hand height picks the 808 note, with glide. Pinch adds an extra hit, left-hand openness adds drive, a fist hits the kick. |
 | **Hat Rolls** | Raise your right hand to go from 1/8 to 1/64 hi-hat rolls. Left-hand height sweeps the filter. Hold a fist to cut the beat and open it to **drop**. |
 | **Flute** | Right-hand height plays a tribal flute lead over the beat. Pinch adds an accent, left-hand openness adds vibrato, a fist hits a boom. |

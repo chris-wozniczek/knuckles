@@ -11,7 +11,7 @@ const ease = (u) => u * u * (3 - 2 * u);
 
 const SEP = '<span class="sep">·</span>';
 const MODES = {
-  pads: { label: 'Pads', word: 'MPC', hint: `<b>Tap into a pad</b> with a fingertip to hit it${SEP}bottom row = kick, snare, clap, rim` },
+  pads: { label: 'Pads', word: 'MPC', hint: `Hover a pad and <b>tap your index finger down</b> to hit it${SEP}bottom row = kick, snare, clap, rim` },
   bass: { label: '808', word: '808', hint: `<b>Right hand</b> height = 808 note${SEP}<b>Pinch</b> = extra hit${SEP}<b>Left hand</b> open = drive${SEP}<b>Fist</b> = kick` },
   rolls: { label: 'Hat Rolls', word: 'ROLLS', hint: `<b>Right hand</b> up = faster hi-hat rolls${SEP}<b>Left hand</b> height = filter${SEP}<b>Hold a fist</b>, open it to <b>drop</b>` },
   flute: { label: 'Flute', word: 'FLUTE', hint: `<b>Right hand</b> up/down = melody${SEP}<b>Pinch</b> = accent${SEP}<b>Left hand</b> open = vibrato${SEP}<b>Fist</b> = boom` },
@@ -309,23 +309,25 @@ function padAt(nx, ny, g = padGrid()) {
   }
   return -1;
 }
-function inPad(i, nx, ny, g, m) {
-  const r = padRect(i, g), px = nx * visuals.W, py = ny * visuals.H;
-  return px >= r.x - m && px <= r.x + r.w + m && py >= r.y - m && py <= r.y + r.h + m;
+/* Entering the grid from outside hits the pad you land on; sliding between neighbouring pads doesn't.
+   Inside the grid, a finger tap (see Gestures 'tap'), jab or pinch hits whatever pad is under the fingertip. */
+const padTouchState = { left: { pad: -1, t: 0, inGrid: true }, right: { pad: -1, t: 0, inGrid: true } };
+function inGrid(nx, ny, g, m) {
+  const px = nx * visuals.W, py = ny * visuals.H;
+  return px >= g.x0 - m && px <= g.x0 + g.size + m && py >= g.y0 - m && py <= g.y0 + g.size + m;
 }
-/* Touch-to-hit: a fingertip entering a pad hits it; it must leave (with some slack) before that pad re-triggers. */
-const padTouchState = { left: { pad: -1, t: 0 }, right: { pad: -1, t: 0 } };
 function padTouch(now, g) {
   for (const side of ['left', 'right']) {
     const h = gestures.hands[side], ps = padTouchState[side];
-    if (!h.present || !h.pts) { ps.pad = -1; continue; }
+    if (!h.present || !h.pts) { ps.pad = -1; ps.inGrid = true; continue; }
     const tip = h.pts[8];
-    if (ps.pad >= 0 && inPad(ps.pad, tip.x, tip.y, g, g.gap + g.cell * 0.12)) continue;
     const i = padAt(tip.x, tip.y, g);
-    if (i >= 0 && now - ps.t > 70) {
-      hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1));
-      ps.t = now;
-    }
+    if (!ps.inGrid) {
+      if (i >= 0) {
+        ps.inGrid = true;
+        if (now - ps.t > 70) { hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1)); ps.t = now; }
+      }
+    } else if (!inGrid(tip.x, tip.y, g, g.gap + g.cell * 0.15)) ps.inGrid = false;
     ps.pad = i;
   }
 }
@@ -376,12 +378,12 @@ gestures.on((type, side, d) => {
   const colorIdx = side === 'right' ? 0 : 2;
   const cam = state.source === 'camera';
   if (mode === 'pads') {
-    if (!cam || (type !== 'strike' && type !== 'pinch')) return;
+    if (!cam || (type !== 'strike' && type !== 'pinch' && type !== 'tap')) return;
     const ps = padTouchState[side];
-    if (performance.now() - ps.t < 180) return;
-    const pt = type === 'pinch' ? d : gestures.hands[side].pts[8];
+    if (performance.now() - ps.t < (type === 'tap' ? 110 : 180)) return;
+    const pt = type === 'strike' ? gestures.hands[side].pts[8] : d;
     const i = padAt(pt.x, pt.y);
-    if (i >= 0) { hitPad(i, type === 'strike' ? d.v : 0.85); ps.t = performance.now(); }
+    if (i >= 0) { hitPad(i, type === 'pinch' ? 0.85 : d.v); ps.t = performance.now(); }
     return;
   }
   if (type === 'fist') {
