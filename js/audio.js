@@ -36,7 +36,7 @@ export const BEATS = {
     hats: 'drill', swing: 0, lead: 'choir', pad: false,
     motif: [0, null, null, null, null, null, -1, null, 0, null, null, null, 2, null, null, null,
       1, null, null, null, null, null, 0, null, -1, null, null, null, -3, null, null, null],
-    slides: [0, 1, 2, 3], slideBy: [12, -5, 7, -2], bassDur: '4n',
+    slides: [0, 1, 2, 3], slideBy: [12, -5, 7, -2], bassDur: '2n',
   },
   westcoast: {
     name: 'West Coast Keys', desc: '93 BPM · staccato piano stabs, G-funk bounce', bpm: 93, root: 9, scale: 'Natural Minor',
@@ -54,8 +54,27 @@ export const BEATS = {
       3, null, 1, null, -1, null, 1, null, 3, null, null, 4, 3, null, 1, null],
     slides: [1, 3], slideBy: [0, 5, 0, -3], bassDur: '2n',
   },
+  user: {
+    name: 'Your Loop', desc: 'your own audio file', bpm: 120, root: 5, scale: 'Natural Minor', user: true,
+    prog: [0, 5, 3, 4], kicks: [[], [], [], []], snares: [], ghosts: {}, ohats: {},
+    hats: 'none', swing: 0, lead: null, motif: [], slides: [], slideBy: 0, bassDur: '4n', pad: false,
+  },
 };
 export const BEAT_ORDER = ['tribal', 'drill', 'westcoast', 'night'];
+const KIT = ['kick', 'snare', 'clap', 'hat', 'ohat', 'rim', 'snap', 'crash', '808'];
+const KIT_GAIN = { kick: 0.6, snare: 0.46, clap: 0.42, hat: 0.2, ohat: 0.17, rim: 0.3, snap: 0.32, crash: 0.18 };
+const BASE_808 = 55;
+const SALAMANDER = 'https://tonejs.github.io/audio/salamander/';
+
+/** Guess a loop's tempo, assuming it spans a power-of-two number of beats. */
+export function loopBpm(sec) {
+  let best = 120, err = Infinity;
+  for (const n of [4, 8, 16, 32, 64]) {
+    const bpm = (n * 60) / sec;
+    if (bpm >= 70 && bpm <= 170 && Math.abs(bpm - 125) < err) { best = bpm; err = Math.abs(bpm - 125); }
+  }
+  return Math.round(best * 10) / 10;
+}
 
 // Finger-drumming routine the demo hands play in Pads mode (32 steps → pad indices).
 export const DEMO_PADS = { 0: [0], 4: [7], 8: [2], 10: [0], 12: [7], 14: [6], 16: [0], 19: [0], 20: [7], 24: [2], 26: [0], 28: [7], 30: [3] };
@@ -105,6 +124,10 @@ export class AudioEngine {
     this.motifIdx = 0;
     this._last = {};
     this.beat = BEATS.tribal;
+    this.buf = {};
+    this.custom = {};
+    this.customPlaying = {};
+    this.userLoop = null;
   }
 
   /** Monosynth params need non-decreasing event times; live hits can land before already-scheduled beat events. */
@@ -163,13 +186,13 @@ export class AudioEngine {
       envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 }, volume: -3,
     }));
     const snHP = toDrums(new T.Filter({ type: 'highpass', frequency: 1500 }));
-    const snRev = sends(new T.Gain(0), 0.9);
-    snHP.connect(snRev);
+    this.snRev = sends(new T.Gain(0), 0.9);
+    snHP.connect(this.snRev);
     this.snare = new T.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.16, sustain: 0 }, volume: -8 }).connect(snHP);
     this.snareBody = toDrums(new T.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 }, volume: -10 }));
     const clapBP = toDrums(new T.Filter({ type: 'bandpass', frequency: 1350, Q: 1.1 }));
-    const clapRev = sends(new T.Gain(0), 1.2);
-    clapBP.connect(clapRev);
+    this.clapRev = sends(new T.Gain(0), 1.2);
+    clapBP.connect(this.clapRev);
     this.clap = new T.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.13, sustain: 0 }, volume: -5 }).connect(clapBP);
     const hatHP = toDrums(new T.Filter({ type: 'highpass', frequency: 7200 }));
     this.hatPan = new T.Panner(0.18).connect(hatHP);
@@ -178,8 +201,8 @@ export class AudioEngine {
     const rimBP = toDrums(new T.Filter({ type: 'bandpass', frequency: 1800, Q: 3 }));
     this.rim = new T.Synth({ oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.035, sustain: 0, release: 0.02 }, volume: -12 }).connect(rimBP);
     const snapBP = toDrums(new T.Filter({ type: 'bandpass', frequency: 2800, Q: 1.6 }));
-    const snapRev = sends(new T.Gain(0), 1.4);
-    snapBP.connect(snapRev);
+    this.snapRev = sends(new T.Gain(0), 1.4);
+    snapBP.connect(this.snapRev);
     this.snap = new T.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.06, sustain: 0 }, volume: -4 }).connect(snapBP);
     this.log = sends(new T.MembraneSynth({
       pitchDecay: 0.012, octaves: 1.6, envelope: { attack: 0.001, decay: 0.34, sustain: 0, release: 0.1 }, volume: -7,
@@ -264,12 +287,23 @@ export class AudioEngine {
       volume: -12,
     }).connect(pianoF);
     const pluckCh = sends(new T.Chorus({ frequency: 1.2, delayTime: 3, depth: 0.5, wet: 0.5 }).start(), 0.7, 0.4);
+    this.strings = [0, 1, 2, 3, 4, 5].map(() => new T.PluckSynth({ attackNoise: 1.4, dampening: 4200, resonance: 0.965, volume: -2 }).connect(pluckCh));
+    this.stringIdx = 0;
     this.pluck = new T.PolySynth(T.FMSynth, {
       maxPolyphony: 10, harmonicity: 3, modulationIndex: 2.2, oscillator: { type: 'triangle' },
       envelope: { attack: 0.003, decay: 0.9, sustain: 0, release: 0.6 },
       modulationEnvelope: { attack: 0.002, decay: 0.12, sustain: 0, release: 0.1 },
       volume: -11,
     }).connect(new T.Filter({ type: 'lowpass', frequency: 3400 }).connect(pluckCh));
+
+    const grand = sends(new T.Gain(1), 0.3, 0.06);
+    const urls = {};
+    ['A0', 'C1', 'Ds1', 'Fs1', 'A1', 'C2', 'Ds2', 'Fs2', 'A2', 'C3', 'Ds3', 'Fs3', 'A3', 'C4', 'Ds4', 'Fs4', 'A4', 'C5', 'Ds5', 'Fs5', 'A5', 'C6']
+      .forEach((n) => { urls[n.replace('s', '#')] = `${n}.mp3`; });
+    this.grand = new T.Sampler({ urls, baseUrl: SALAMANDER, release: 0.6, volume: -4, onerror: () => {} }).connect(grand);
+    this.userLoopOut = new T.Gain(0.9).connect(this.drumBus);
+    this.raw = ctx.rawContext;
+    this._loadKit();
 
     this.transport.bpm.value = this.beat.bpm;
     this.transport.swingSubdivision = '16n';
@@ -279,6 +313,54 @@ export class AudioEngine {
   }
 
   now() { return Tone.now(); }
+
+  async _loadKit() {
+    const base = new URL('../audio/', import.meta.url);
+    await Promise.all(KIT.map(async (n) => {
+      try {
+        const r = await fetch(new URL(`${n}.wav`, base));
+        this.buf[n] = await this.raw.decodeAudioData(await r.arrayBuffer());
+      } catch (e) { console.warn('sample failed', n, e); }
+    }));
+  }
+  /** Decode any audio file the browser understands (wav, mp3, ogg, m4a…). */
+  async decode(bytes) { return this.raw.decodeAudioData(bytes.slice(0)); }
+
+  _one(buffer, t, vel, dests, rate = 1) {
+    const src = this.raw.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    const g = this.raw.createGain();
+    g.gain.value = vel;
+    src.connect(g);
+    dests.forEach((d) => Tone.connect(g, d));
+    src.start(t);
+    src.onended = () => g.disconnect();
+    return { src, g };
+  }
+  _fadeOut(v, t, tau = 0.015) {
+    if (!v) return;
+    try { v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0, t, tau); v.src.stop(t + tau * 8); } catch {}
+  }
+
+  /* ---------------- Your own sounds ---------------- */
+  setPadSample(i, buffer) { if (buffer) this.custom[i] = buffer; else delete this.custom[i]; }
+  setUserLoop(buffer) {
+    this._stopUserLoop();
+    this.userLoop = buffer;
+    if (buffer) BEATS.user.bpm = loopBpm(buffer.duration);
+  }
+  _startUserLoop() {
+    if (!this.userLoop || !this.loopOn || this.userLoopSrc) return;
+    const t = Math.max(Tone.now(), this.transport.nextSubdivision('1m'));
+    this.userLoopSrc = this._one(this.userLoop, t, 1, [this.userLoopOut]);
+    this.userLoopSrc.src.loop = true;
+  }
+  _stopUserLoop() {
+    if (!this.userLoopSrc) return;
+    this._fadeOut(this.userLoopSrc, Tone.now(), 0.03);
+    this.userLoopSrc = null;
+  }
   setKey(root, scale) { this.root = root; this.scale = scale; }
 
   chordAt(bar, base = 36) { return chord(this.root, this.scale, this.beat.prog[bar % 4], base); }
@@ -292,6 +374,7 @@ export class AudioEngine {
     if (!this.ready) return;
     this.transport.bpm.rampTo(b.bpm, 0.4);
     this.transport.swing = b.swing;
+    if (b.user) this._startUserLoop(); else this._stopUserLoop();
   }
 
   /** Background melody voice for the current beat. */
@@ -309,12 +392,18 @@ export class AudioEngine {
       }
       case 'piano': {
         const bar = Math.floor(this.step / 16) % 4;
-        this.piano.triggerAttackRelease(f, '16n', time, vel);
-        this.piano.triggerAttackRelease(midiToFreq(midi - 12), '16n', time, vel * 0.7);
-        this.chordAt(bar, 52).forEach((m) => this.piano.triggerAttackRelease(midiToFreq(m), '16n', time, vel * 0.5));
+        const inst = this.grand.loaded ? this.grand : this.piano;
+        const dur = this.grand.loaded ? '8n' : '16n';
+        inst.triggerAttackRelease([f, midiToFreq(midi - 12)], dur, time, vel * 0.85);
+        inst.triggerAttackRelease(this.chordAt(bar, 52).map(midiToFreq), dur, time + 0.004, vel * 0.5);
         break;
       }
-      case 'pluck': this.pluck.triggerAttackRelease(f, '8n', time, vel * 0.9); break;
+      case 'pluck': {
+        const s = this.strings[this.stringIdx++ % this.strings.length];
+        s.triggerAttack(f, time);
+        this.pluck.triggerAttackRelease(f, '8n', time, vel * 0.4);
+        break;
+      }
       default: this.fluteNote(midi, vel, time);
     }
   }
@@ -324,15 +413,27 @@ export class AudioEngine {
   hit808(midi, time, vel = 0.95, dur = '4n') {
     if (!this.ready) return;
     const t = this._at('808', Math.max(time ?? 0, Tone.now()));
-    this.b808.triggerAttackRelease(midiToFreq(midi), dur, t, vel);
+    const S = this.buf['808'];
+    if (S) {
+      this._fadeOut(this.cur808, t, 0.012);
+      const v = this._one(S, t, vel * 0.55, [this.drive], midiToFreq(midi) / BASE_808);
+      const d = Tone.Time(dur).toSeconds();
+      v.g.gain.setTargetAtTime(0, t + d, 0.12);
+      v.src.stop(t + d + 1);
+      this.cur808 = v;
+    } else this.b808.triggerAttackRelease(midiToFreq(midi), dur, t, vel);
     this.last808 = t;
+  }
+  glide808(midi, at) {
+    if (this.buf['808'] && this.cur808) this.cur808.src.playbackRate.setTargetAtTime(midiToFreq(midi) / BASE_808, at, 0.03);
+    else this.b808.setNote(midiToFreq(midi), at);
   }
   /** Hand-set 808 note: the sequencer uses it, and a ringing 808 glides to it. */
   setHandBass(midi) {
     if (!this.ready) return;
     const changed = midi !== this.handBass;
     this.handBass = midi;
-    if (changed && midi != null && Tone.now() - this.last808 < 1.1) this.b808.setNote(midiToFreq(midi), this._at('808', Tone.now()));
+    if (changed && midi != null && Tone.now() - this.last808 < 1.1) this.glide808(midi, this._at('808', Tone.now()));
   }
   setDrive(e) {
     if (!this.ready) return;
@@ -383,6 +484,11 @@ export class AudioEngine {
     if (!this.ready) return;
     const p = PADS[i];
     const t = time ?? Tone.now();
+    if (this.custom[i]) {
+      this._fadeOut(this.customPlaying[i], t);
+      this.customPlaying[i] = this._one(this.custom[i], t, vel, [this.drumBus]);
+      return;
+    }
     if (p.deg != null) {
       this.hit808(bassMidi(chord(this.root, this.scale, p.deg, 36)[0]), t, vel, '4n');
       return;
@@ -404,6 +510,14 @@ export class AudioEngine {
     if (!this.ready) return;
     const t0 = Math.max(time ?? 0, Tone.now());
     const t = name === 'boom' ? t0 : this._at(name, t0);
+    const S = this.buf[name];
+    if (S && KIT_GAIN[name]) {
+      const route = { snare: [this.drumBus, this.snRev], clap: [this.drumBus, this.clapRev], snap: [this.drumBus, this.snapRev], hat: [this.hatPan], ohat: [this.hatPan] }[name] || [this.drumBus];
+      if (name === 'hat' || name === 'ohat') { this._fadeOut(this.openHat, t, 0.01); this.openHat = null; }
+      const v = this._one(S, t, vel * KIT_GAIN[name], route, name === 'hat' ? 1 + (Math.random() - 0.5) * 0.04 : 1);
+      if (name === 'ohat') this.openHat = v;
+      return;
+    }
     switch (name) {
       case 'kick': this.kick.triggerAttackRelease('F1', '8n', t, vel); break;
       case 'snare':
@@ -431,8 +545,8 @@ export class AudioEngine {
         this.riser.triggerAttackRelease(1.6, t, vel);
         break;
       case 'boom':
-        this.kick.triggerAttackRelease('C1', '4n', this._at('kick', t), vel);
-        this.crash.triggerAttackRelease('2n', this._at('crash', t), vel * 0.8);
+        this.drum('kick', vel, t);
+        this.drum('crash', vel * 0.8, t);
         this.hit808(bassMidi(this.chordAt(this.barNow())[0]), t, vel, '2n');
         break;
     }
@@ -480,9 +594,11 @@ export class AudioEngine {
     this.loop.start(0);
     this.transport.start('+0.05');
     this.loopOn = true;
+    if (this.beat.user) this._startUserLoop();
   }
   stopLoop() {
     if (!this.ready || !this.loopOn) return;
+    this._stopUserLoop();
     this.loop.stop();
     this.transport.stop();
     this.pad.releaseAll();
@@ -498,6 +614,7 @@ export class AudioEngine {
     let div = 1;
     const style = this.beat.hats;
     const acc0 = s16 % 4 === 0 ? 0.8 : s16 % 2 === 0 ? 0.6 : 0.42;
+    if (this.hatRate < 0 && style === 'none') return;
     if (this.hatRate < 0 && style === 'eighths') {
       if (s16 % 2 === 0) this.drum('hat', s16 % 4 === 0 ? 0.75 : 0.5, time);
       else if (bar === 3 && s16 === 15) this.drum('hat', 0.35, time);
@@ -532,13 +649,18 @@ export class AudioEngine {
     if (!this.dropped) {
       const kicks = B.kicks[bar];
       const kick = kicks.includes(s16);
-      if (L.kick && kick) this.drum('kick', 0.95, time);
+      if (L.kick && kick) {
+        this.drum('kick', 0.95, time);
+        this.padOut.gain.cancelScheduledValues(time);
+        this.padOut.gain.setValueAtTime(0.35, time);
+        this.padOut.gain.linearRampToValueAtTime(1, time + 0.22);
+      }
       if (L.bass && kick) {
         const slide = B.slides.includes(bar) && s16 === kicks[kicks.length - 1] && this.handBass == null;
         const m = this.handBass ?? bassMidi(ch[0]);
         this.hit808(m, time, 0.95, slide ? '8n' : B.bassDur);
         const by = Array.isArray(B.slideBy) ? B.slideBy[bar] : B.slideBy;
-        if (slide && by) this.b808.setNote(midiToFreq(m + by), this._at('808', time + 0.09));
+        if (slide && by) this.glide808(m + by, this._at('808', time + 0.09));
       }
       if (L.snare && B.snares.includes(s16)) { this.drum('clap', 0.85, time); this.drum('snare', 0.65, time); }
       if (L.snare && B.ghosts[bar]?.includes(s16)) this.drum('snare', 0.4, time);

@@ -1,5 +1,6 @@
 import { CameraTracker, Gestures, synthHand } from './hands.js';
 import { AudioEngine, PADS, HAT_RATES, DEMO_PADS, BEATS, BEAT_ORDER, bassMidi } from './audio.js';
+import { store } from './store.js';
 import { Visuals, PALETTES } from './visuals.js';
 import { Recorder } from './recorder.js';
 import { NOTE_NAMES, SCALES, scaleNotes, chord, pcName } from './music.js';
@@ -174,9 +175,11 @@ function setBeat(id, fromUser = false) {
   if (fromUser && state.source !== 'attract') visuals.shout(b.name.toUpperCase(), 0, 0.8);
   if (fromUser) showHint(`<b>${b.name}</b>${SEP}${b.desc}${SEP}press <b>B</b> for the next beat`);
 }
+function beatOrder() { return audio.userLoop ? [...BEAT_ORDER, 'user'] : BEAT_ORDER; }
 function buildBeatPicker() {
   const list = $('#beats');
-  BEAT_ORDER.forEach((id) => {
+  list.innerHTML = '';
+  beatOrder().forEach((id) => {
     const b = BEATS[id];
     const btn = document.createElement('button');
     btn.dataset.beat = id;
@@ -191,7 +194,7 @@ const beatPop = $('#beatPop');
 function toggleBeatPop(open = beatPop.hidden) {
   beatPop.hidden = !open;
   beatBtn.setAttribute('aria-expanded', String(open));
-  if (open) toggleKeyPop(false);
+  if (open) { toggleKeyPop(false); toggleKitPop(false); }
 }
 beatBtn.onclick = (e) => { e.stopPropagation(); toggleBeatPop(); };
 document.addEventListener('pointerdown', (e) => {
@@ -203,7 +206,7 @@ const keyPop = $('#keyPop');
 function toggleKeyPop(open = keyPop.hidden) {
   keyPop.hidden = !open;
   keyBtn.setAttribute('aria-expanded', String(open));
-  if (open && beatPop) toggleBeatPop(false);
+  if (open && beatPop) { toggleBeatPop(false); toggleKitPop(false); }
 }
 keyBtn.onclick = (e) => { e.stopPropagation(); toggleKeyPop(); };
 document.addEventListener('pointerdown', (e) => {
@@ -260,9 +263,9 @@ function rebuildGuides() {
   };
   state.guide = state.mode === 'bass' ? state.guides.bass : state.mode === 'flute' ? state.guides.flute : null;
   state.padLabels = PADS.map((p, i) => ({
-    name: p.name,
+    name: customNames[i] ?? p.name,
     bank: 'A' + String(i + 1).padStart(2, '0'),
-    note: p.deg != null ? pcName(bassMidi(chord(state.root, state.scale, p.deg, 36)[0])) : null,
+    note: p.deg != null && customNames[i] == null ? pcName(bassMidi(chord(state.root, state.scale, p.deg, 36)[0])) : null,
     group: p.group,
   }));
 }
@@ -569,6 +572,7 @@ function setStatus(kind, text) {
 async function ensureAudio() {
   try {
     await audio.start();
+    await restoreSounds();
     audio.setKey(state.root, state.scale);
     audio.setMuted(state.muted);
     return true;
@@ -732,15 +736,132 @@ recBtn.onclick = async () => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Your own sounds: samples per pad + a background loop (local only)   */
+/* ------------------------------------------------------------------ */
+const customNames = {};
+const kitBtn = $('#kitBtn');
+const kitPop = $('#kitPop');
+const kitFile = $('#kitFile');
+let kitTarget = null;
+const shortName = (n) => n.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 12) || 'Sample';
+function toggleKitPop(open = kitPop.hidden) {
+  kitPop.hidden = !open;
+  kitBtn.setAttribute('aria-expanded', String(open));
+  if (open) { toggleBeatPop(false); toggleKeyPop(false); renderKit(); }
+}
+kitBtn.onclick = (e) => { e.stopPropagation(); toggleKitPop(); };
+document.addEventListener('pointerdown', (e) => {
+  if (!kitPop.hidden && !kitPop.contains(e.target) && !kitBtn.contains(e.target)) toggleKitPop(false);
+});
+function renderKit() {
+  const grid = $('#kitGrid');
+  grid.innerHTML = '';
+  for (let row = 3; row >= 0; row--) {
+    for (let col = 0; col < 4; col++) {
+      const i = row * 4 + col;
+      const b = document.createElement('button');
+      const custom = customNames[i] != null;
+      b.className = custom ? 'custom' : '';
+      b.title = custom ? `${customNames[i]} (click to replace)` : `Load a sound onto pad ${i + 1}`;
+      b.innerHTML = `<span class="kn">A${String(i + 1).padStart(2, '0')}</span><span class="kl"></span>`;
+      b.querySelector('.kl').textContent = custom ? customNames[i] : PADS[i].name;
+      b.onclick = () => pickFile(i);
+      grid.appendChild(b);
+    }
+  }
+  const loopName = audio.userLoop ? loopLabel : null;
+  $('#loopName').textContent = loopName ? `${loopName} · ${BEATS.user.bpm} BPM` : 'None loaded';
+  $('#loopClear').hidden = !loopName;
+  $('#kitReset').hidden = !Object.keys(customNames).length;
+}
+let loopLabel = null;
+function pickFile(target) {
+  kitTarget = target;
+  kitFile.value = '';
+  kitFile.click();
+}
+$('#loopLoad').onclick = () => pickFile('loop');
+kitFile.onchange = () => { if (kitFile.files[0]) loadSound(kitTarget, kitFile.files[0]); };
+
+async function applySound(target, name, bytes, fromUser) {
+  let buf;
+  try { buf = await audio.decode(bytes); } catch {
+    if (fromUser) toast('Couldn’t read that file. Try WAV, MP3, OGG or M4A.');
+    return false;
+  }
+  if (target === 'loop') {
+    loopLabel = shortName(name);
+    audio.setUserLoop(buf);
+    BEATS.user.desc = `${loopLabel} · ${BEATS.user.bpm} BPM`;
+    buildBeatPicker();
+    if (fromUser) setBeat('user', true);
+  } else {
+    audio.setPadSample(target, buf);
+    customNames[target] = shortName(name);
+    rebuildGuides();
+    if (fromUser && state.source !== 'attract') flashPad(target, 0.9);
+    if (fromUser) audio.playPad(target, 0.9);
+  }
+  renderKit();
+  return true;
+}
+async function loadSound(target, file) {
+  if (!file) return;
+  if (file.size > 25e6) { toast('That file is over 25 MB. Try a shorter clip.'); return; }
+  if (!(await ensureAudio())) return;
+  const bytes = await file.arrayBuffer();
+  if (await applySound(target, file.name, bytes, true)) store.put(target === 'loop' ? 'loop' : `pad${target}`, { name: file.name, bytes });
+}
+let restored = false;
+async function restoreSounds() {
+  if (restored) return;
+  restored = true;
+  const all = await store.all();
+  for (const [k, v] of Object.entries(all)) {
+    if (!v?.bytes) continue;
+    if (k === 'loop') await applySound('loop', v.name, v.bytes, false);
+    else if (/^pad\d+$/.test(k)) await applySound(+k.slice(3), v.name, v.bytes, false);
+  }
+}
+$('#loopClear').onclick = () => {
+  audio.setUserLoop(null);
+  loopLabel = null;
+  store.del('loop');
+  if (state.beat === 'user') setBeat('tribal', true);
+  buildBeatPicker();
+  renderKit();
+};
+$('#kitReset').onclick = () => {
+  for (const k of Object.keys(customNames)) { audio.setPadSample(+k, null); store.del(`pad${k}`); delete customNames[k]; }
+  rebuildGuides();
+  renderKit();
+};
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
+  const file = [...e.dataTransfer.files].find((f) => f.type.startsWith('audio/') || /\.(wav|mp3|ogg|m4a|aac|flac|webm)$/i.test(f.name));
+  if (!file) { toast('Drop an audio file (WAV, MP3, OGG, M4A).'); return; }
+  const i = state.mode === 'pads' ? padAt(e.clientX / visuals.W, e.clientY / visuals.H) : -1;
+  loadSound(i >= 0 ? i : 'loop', file);
+});
+
+/* ------------------------------------------------------------------ */
 /* Keyboard                                                            */
 /* ------------------------------------------------------------------ */
 window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea')) return;
-  if (e.key === 'Escape') { document.querySelectorAll('.modal').forEach(closeModal); toggleKeyPop(false); toggleBeatPop(false); }
+  if (e.key === 'Escape') { document.querySelectorAll('.modal').forEach(closeModal); toggleKeyPop(false); toggleBeatPop(false); toggleKitPop(false); }
   else if (e.key === '?' || e.key === 'h') openModal($('#help'));
   else if (e.key >= '1' && e.key <= '4') setMode(MODE_ORDER[+e.key - 1], true);
   else if (e.key === 'm') muteBtn.click();
-  else if (e.key === 'b') setBeat(BEAT_ORDER[(BEAT_ORDER.indexOf(state.beat) + 1) % BEAT_ORDER.length], true);
+  else if (e.key === 'b') { const order = beatOrder(); setBeat(order[(order.indexOf(state.beat) + 1) % order.length], true); }
   else if (e.key === 'r') recBtn.click();
   else if (e.key === 'c') startCamera();
 });

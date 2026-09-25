@@ -323,3 +323,35 @@ body.recording .topbar, body.recording .hint { opacity: .25; transition: opacity
 .tools .cam-chip:hover { transform: translateY(-1px); box-shadow: 0 12px 32px -10px var(--a); }
 .tools .cam-chip.loading { opacity: .7; pointer-events: none; }
 body[data-source="demo"] .tools .cam-chip { display: inline-flex; }
+
+/* Your own sounds */
+#kitBtn { gap: 7px; }
+#kitBtn svg { width: 15px; height: 15px; }
+.kit-pop { width: min(360px, calc(100vw - 2 * var(--pad))); }
+.kit-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.kit-grid button {
+  position: relative; aspect-ratio: 1; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  text-align: left; color: var(--muted); background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); transition: all .2s var(--ease); overflow: hidden;
+}
+.kit-grid button:hover { color: var(--text); background: rgba(255, 255, 255, 0.09); }
+.kit-grid .kn { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; color: var(--faint); }
+.kit-grid .kl { font-size: 11px; line-height: 1.15; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-grid button.custom { color: var(--text); border-color: color-mix(in srgb, var(--a) 65%, transparent); background: color-mix(in srgb, var(--a) 16%, transparent); box-shadow: 0 6px 20px -10px var(--a); }
+.kit-grid button.custom .kn { color: var(--a); }
+.kit-loop-title { margin-top: 16px; }
+.kit-loop { display: flex; align-items: center; gap: 8px; }
+.kit-loop #loopName { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.mini {
+  height: 30px; padding: 0 12px; border-radius: 9px; font-size: 12px; font-weight: 600; color: #120d10;
+  background: linear-gradient(135deg, #fff3d6, var(--a)); border: 1px solid transparent; transition: all .2s var(--ease); white-space: nowrap;
+}
+.mini:hover { transform: translateY(-1px); }
+.mini.ghost { color: var(--muted); background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.08); }
+.mini.ghost:hover { color: var(--text); }
+body.dragging::after {
+  content: 'Drop on a pad to load it · drop anywhere else to use it as the background loop'; position: fixed; inset: 12px; z-index: 40; border-radius: 22px;
+  border: 2px dashed color-mix(in srgb, var(--a) 70%, transparent); background: rgba(10, 6, 14, 0.35); display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 120px; font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--text); pointer-events: none;
+}
+@media (max-width: 760px) { #kitBtn span { display: none; } }
