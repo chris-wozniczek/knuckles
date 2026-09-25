@@ -18,10 +18,12 @@ It's a companion to [Handel](https://github.com/chris-wozniczek/handel), the sam
 
 | Mode | What your hands do |
 | --- | --- |
-| **Pads** | Jab a fingertip down or pinch over a pad to hit it. Bottom row: kick, snare, clap, rim. Then hats and log drum, four 808 notes, and flute, horn, riser and crash on top. |
+| **Pads** | Tap into a pad with your index fingertip (or pinch over it) to hit it. Bottom row: kick, snare, clap, rim. Then hats and log drum, four 808 notes, and flute, horn, riser and crash on top. |
 | **808** | Right-hand height picks the 808 note, with glide. Pinch adds an extra hit, left-hand openness adds drive, a fist hits the kick. |
 | **Hat Rolls** | Raise your right hand to go from 1/8 to 1/64 hi-hat rolls. Left-hand height sweeps the filter. Hold a fist to cut the beat and open it to **drop**. |
 | **Flute** | Right-hand height plays a tribal flute lead over the beat. Pinch adds an accent, left-hand openness adds vibrato, a fist hits a boom. |
+
+Pick the groove with the **Beat** menu (or press `B`): **Tribal Trap** (140 BPM, flute hook), **Drill** (142, sliding 808s, skippy hats, bells), **Phonk** (130, cowbell melody, Memphis bounce) or **Boom Bap** (90, swung drums, Rhodes keys). Each beat sets its own tempo, groove and key.
 
 Moving your hands apart makes the room (reverb) bigger. Press **Record** (or `R`) for a 15-second clip with sound, ready to post. Press `?` for help at any time.
 
@@ -32,7 +34,7 @@ Moving your hands apart makes the room (reverb) bigger. Press **Record** (or `R`
 ## How it works
 
 - **Hand tracking:** MediaPipe Tasks Vision `HandLandmarker` runs in the browser (WASM + GPU delegate, falling back to CPU if the GPU fails) and tracks 21 landmarks on each of two hands. Landmarks are smoothed, then turned into continuous controls (height, openness, distance between hands, speed) and events (pinch, fist, fist release, downward jab).
-- **Sound:** Tone.js / Web Audio. The 140 BPM trap sequencer plays a syncopated four-bar kick pattern, clap and snare on 3, closed and open hats with ghost notes and rolls, a gliding 808 (sine plus saturation), a tribal flute motif in the Hijaz scale, horn stabs and a dark pad. Everything goes through a bus compressor, reverb, delay and a limiter. Live hits are scheduled against the sequencer so they never collide.
+- **Sound:** Tone.js / Web Audio. One step sequencer drives four beat presets (tempo, swing, kick and snare patterns, hat style, 808 slides, key and a melody voice: flute, FM bells, a pitched cowbell or Rhodes-style keys). The default Tribal Trap plays a syncopated four-bar kick, clap and snare on 3, hats with rolls, a gliding 808 (sine plus saturation), a flute motif in the Hijaz scale, horn stabs and a dark pad. Everything goes through a bus compressor, reverb, delay and a limiter. Live hits are scheduled against the sequencer so they never collide.
 - **Visuals:** a WebGL shader draws the mirrored webcam as gold and purple halftone over rising smoke that reacts to the kick and to the audio spectrum. A 2D canvas on top draws the MPC pads, the step-sequencer LCD, note and roll ladders, hand skeletons, trails and particles.
 - **Demo mode:** the attract screen drives the same gesture and audio pipeline with choreographed synthetic hands, so it looks alive before you allow the camera.
 - **Recording:** `canvas.captureStream(30)` plus a `MediaStreamAudioDestinationNode` go into `MediaRecorder` (MP4 where supported, otherwise WebM). The clip is created and downloaded locally.

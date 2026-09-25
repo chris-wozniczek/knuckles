@@ -23,6 +23,40 @@ export const KICKS = [[0, 10], [0, 3, 11], [0, 10, 13], [0, 6, 10, 14]];
 // Two-bar flute hook as scale steps from the root (null = rest).
 const MOTIF = [0, null, null, 2, null, 1, null, 0, -1, null, null, null, 0, null, -2, null,
   0, null, null, 3, null, 2, null, 1, 2, null, 1, null, 0, null, null, null];
+// Beat presets: one sequencer, four grooves. Kicks are 16th steps per bar of the 4-bar phrase.
+export const BEATS = {
+  tribal: {
+    name: 'Tribal Trap', desc: '140 BPM · flute hook, rolling hats', bpm: 140, root: 5, scale: 'Hijaz',
+    prog: [0, 5, 3, 4], kicks: KICKS, snares: [8], ghosts: { 3: [15] }, ohats: { 2: [14] },
+    hats: 'trap', swing: 0, lead: 'flute', motif: MOTIF, slides: [3], slideBy: 12, bassDur: '4n',
+  },
+  drill: {
+    name: 'Drill', desc: '142 BPM · sliding 808s, skippy hats, dark bells', bpm: 142, root: 1, scale: 'Harmonic Minor',
+    prog: [0, 3, 5, 4], kicks: [[0, 11], [0, 7, 10], [0, 3, 11], [0, 7, 10, 14]], snares: [8], ghosts: { 1: [14], 3: [11, 14] }, ohats: { 1: [6] },
+    hats: 'drill', swing: 0, lead: 'bell',
+    motif: [0, null, null, 0, null, null, 2, null, 1, null, null, null, -1, null, null, null,
+      0, null, null, 0, null, null, 3, null, 2, null, 1, null, -2, null, null, null],
+    slides: [0, 1, 2, 3], slideBy: 7, bassDur: '4n',
+  },
+  phonk: {
+    name: 'Phonk', desc: '130 BPM · cowbell melody, Memphis bounce', bpm: 130, root: 4, scale: 'Phrygian',
+    prog: [0, 1, 0, 6], kicks: [[0, 3, 10], [0, 6, 10], [0, 3, 10, 13], [0, 6, 10, 11]], snares: [8], ghosts: { 3: [14, 15] }, ohats: { 0: [14], 2: [14] },
+    hats: 'eighths', swing: 0.08, lead: 'cowbell',
+    motif: [0, null, 0, null, 1, null, 0, null, -1, null, 0, null, 2, null, 1, null,
+      0, null, 0, null, 1, null, 0, null, 3, null, 2, null, 1, null, -1, null],
+    slides: [3], slideBy: -5, bassDur: '8n',
+  },
+  boombap: {
+    name: 'Boom Bap', desc: '90 BPM · dusty swing, Rhodes keys', bpm: 90, root: 2, scale: 'Dorian',
+    prog: [0, 3, 1, 4], kicks: [[0, 7, 10], [0, 10], [0, 7, 9, 10], [0, 3, 10]], snares: [4, 12], ghosts: { 1: [15], 3: [7] }, ohats: { 3: [14] },
+    hats: 'eighths', swing: 0.4, lead: 'keys',
+    motif: [0, null, null, null, null, null, 2, null, null, null, 1, null, null, null, null, null,
+      -1, null, null, null, null, null, 0, null, null, null, 2, null, 4, null, null, null],
+    slides: [], slideBy: 0, bassDur: '8n',
+  },
+};
+export const BEAT_ORDER = ['tribal', 'drill', 'phonk', 'boombap'];
+
 // Finger-drumming routine the demo hands play in Pads mode (32 steps → pad indices).
 export const DEMO_PADS = { 0: [0], 4: [7], 8: [2], 10: [0], 12: [7], 14: [6], 16: [0], 19: [0], 20: [7], 24: [2], 26: [0], 28: [7], 30: [3] };
 
@@ -70,6 +104,7 @@ export class AudioEngine {
     this.last808 = -10;
     this.motifIdx = 0;
     this._last = {};
+    this.beat = BEATS.tribal;
   }
 
   /** Monosynth params need non-decreasing event times; live hits can land before already-scheduled beat events. */
@@ -208,7 +243,30 @@ export class AudioEngine {
     }).connect(this.padF);
 
     this.transport = T.getTransport();
-    this.transport.bpm.value = BPM;
+    // Alternative leads for the other beats
+    this.bell = sends(new T.PolySynth(T.FMSynth, {
+      maxPolyphony: 8, harmonicity: 3.01, modulationIndex: 12,
+      envelope: { attack: 0.002, decay: 1.2, sustain: 0, release: 1.2 },
+      modulationEnvelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.3 },
+      volume: -15,
+    }), 0.7, 0.35);
+    const cowF = sends(new T.Filter({ type: 'bandpass', frequency: 1700, Q: 1.1 }), 0.3, 0.25);
+    this.cowbell = new T.PolySynth(T.Synth, {
+      maxPolyphony: 8, oscillator: { type: 'fatsquare', count: 2, spread: 680 },
+      envelope: { attack: 0.001, decay: 0.2, sustain: 0.02, release: 0.12 },
+      volume: -17,
+    }).connect(cowF);
+    const trem = sends(new T.Tremolo({ frequency: 4.2, depth: 0.25, spread: 60 }).start(), 0.5, 0.12);
+    this.keys = new T.PolySynth(T.FMSynth, {
+      maxPolyphony: 12, harmonicity: 1, modulationIndex: 3.2, oscillator: { type: 'sine' },
+      envelope: { attack: 0.004, decay: 1.4, sustain: 0.25, release: 1.1 },
+      modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.1, release: 0.5 },
+      volume: -13,
+    }).connect(trem);
+
+    this.transport.bpm.value = this.beat.bpm;
+    this.transport.swingSubdivision = '16n';
+    this.transport.swing = this.beat.swing;
     this.loop = new T.Loop((time) => this._tick(time), '16n');
     this.ready = true;
   }
@@ -216,7 +274,35 @@ export class AudioEngine {
   now() { return Tone.now(); }
   setKey(root, scale) { this.root = root; this.scale = scale; }
 
-  chordAt(bar, base = 36) { return chord(this.root, this.scale, PROG[bar % 4], base); }
+  chordAt(bar, base = 36) { return chord(this.root, this.scale, this.beat.prog[bar % 4], base); }
+
+  setBeat(id) {
+    const b = BEATS[id];
+    if (!b) return;
+    this.beat = b;
+    this.root = b.root;
+    this.scale = b.scale;
+    if (!this.ready) return;
+    this.transport.bpm.rampTo(b.bpm, 0.4);
+    this.transport.swing = b.swing;
+  }
+
+  /** Background melody voice for the current beat. */
+  melodyNote(midi, vel, time) {
+    if (!this.ready) return;
+    const f = midiToFreq(midi);
+    switch (this.beat.lead) {
+      case 'bell': this.bell.triggerAttackRelease(f, '8n', time, vel * 0.9); break;
+      case 'cowbell': this.cowbell.triggerAttackRelease(f, '16n', time, vel); break;
+      case 'keys': {
+        const bar = Math.floor(this.step / 16) % 4;
+        this.keys.triggerAttackRelease(f, '4n', time, vel * 0.8);
+        this.chordAt(bar, 50).forEach((m, k) => this.keys.triggerAttackRelease(midiToFreq(m), '4n', time + 0.012 * (k + 1), vel * 0.45));
+        break;
+      }
+      default: this.fluteNote(midi, vel, time);
+    }
+  }
   barNow() { return Math.floor(this.step / 16) % 4; }
 
   /* ---------------- 808 ---------------- */
@@ -395,6 +481,18 @@ export class AudioEngine {
 
   _hats(time, s16, bar) {
     let div = 1;
+    const style = this.beat.hats;
+    const acc0 = s16 % 4 === 0 ? 0.8 : s16 % 2 === 0 ? 0.6 : 0.42;
+    if (this.hatRate < 0 && style === 'eighths') {
+      if (s16 % 2 === 0) this.drum('hat', s16 % 4 === 0 ? 0.75 : 0.5, time);
+      else if (bar === 3 && s16 === 15) this.drum('hat', 0.35, time);
+      return;
+    }
+    if (this.hatRate < 0 && style === 'drill') {
+      if (bar === 3 && s16 >= 12) { for (let k = 0; k < 2; k++) this.drum('hat', k ? 0.45 : acc0, time + (k * 60) / this.transport.bpm.value / 8); return; }
+      if ([0, 3, 6, 8, 11, 14].includes(s16)) this.drum('hat', s16 % 8 === 0 ? 0.8 : 0.55, time);
+      return;
+    }
     if (this.hatRate >= 0) div = HAT_RATES[this.hatRate].div;
     else if (bar === 1 && s16 >= 12) div = 1.5;
     else if (bar === 3 && s16 >= 12) div = 4;
@@ -415,22 +513,24 @@ export class AudioEngine {
     const bar = Math.floor(this.step / 16) % 4;
     const L = this.layers;
     const ch = this.chordAt(bar);
+    const B = this.beat;
     if (!this.dropped) {
-      const kick = KICKS[bar].includes(s16);
+      const kicks = B.kicks[bar];
+      const kick = kicks.includes(s16);
       if (L.kick && kick) this.drum('kick', 0.95, time);
       if (L.bass && kick) {
-        const slide = bar === 3 && s16 === 14 && this.handBass == null;
+        const slide = B.slides.includes(bar) && s16 === kicks[kicks.length - 1] && this.handBass == null;
         const m = this.handBass ?? bassMidi(ch[0]);
-        this.hit808(m, time, 0.95, slide ? '8n' : '4n');
-        if (slide) this.b808.setNote(midiToFreq(m + 12), this._at('808', time + 0.09));
+        this.hit808(m, time, 0.95, slide ? '8n' : B.bassDur);
+        if (slide) this.b808.setNote(midiToFreq(m + B.slideBy), this._at('808', time + 0.09));
       }
-      if (L.snare && s16 === 8) { this.drum('clap', 0.85, time); this.drum('snare', 0.65, time); }
-      if (L.snare && bar === 3 && s16 === 15) this.drum('snare', 0.4, time);
+      if (L.snare && B.snares.includes(s16)) { this.drum('clap', 0.85, time); this.drum('snare', 0.65, time); }
+      if (L.snare && B.ghosts[bar]?.includes(s16)) this.drum('snare', 0.4, time);
       if (L.hats) this._hats(time, s16, bar);
-      if (L.hats && bar === 2 && s16 === 14) this.drum('ohat', 0.55, time);
+      if (L.hats && B.ohats[bar]?.includes(s16)) this.drum('ohat', 0.55, time);
       if (this.demoPads) DEMO_PADS[s32]?.forEach((i) => this.playPad(i, 0.85, time));
     }
-    if (L.melody && MOTIF[s32] != null) this.fluteNote(this.motifMidi(MOTIF[s32]), s32 % 8 === 0 ? 0.75 : 0.6, time);
+    if (L.melody && B.motif[s32] != null) this.melodyNote(this.motifMidi(B.motif[s32]), s32 % 8 === 0 ? 0.75 : 0.6, time);
     if (L.pad && s16 === 0) this.chordAt(bar, 48).forEach((m, k) => this.pad.triggerAttackRelease(midiToFreq(m), '1m', time + k * 0.01, 0.5));
     this.step++;
   }

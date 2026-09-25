@@ -304,3 +304,15 @@ body.recording .topbar, body.recording .hint { opacity: .25; transition: opacity
 .modes button[aria-selected='true'] svg { color: var(--a); filter: drop-shadow(0 0 8px color-mix(in srgb, var(--a) 70%, transparent)); }
 .modes button span { letter-spacing: .02em; }
 .status, .chip, .icon-btn { background: rgba(14, 9, 18, 0.5); }
+
+.beats { display: grid; gap: 6px; }
+.beats button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 12px; border-radius: 12px;
+  text-align: left; color: var(--muted); background: rgba(255, 255, 255, 0.04); border: 1px solid transparent; transition: all .2s var(--ease);
+}
+.beats button:hover { color: var(--text); background: rgba(255, 255, 255, 0.09); }
+.beats .bn { font-family: var(--display); font-size: 19px; letter-spacing: .03em; text-transform: uppercase; color: var(--text); }
+.beats .bd { font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; }
+.beats button[aria-pressed='true'] { border-color: color-mix(in srgb, var(--a) 60%, transparent); background: color-mix(in srgb, var(--a) 14%, transparent); box-shadow: 0 8px 26px -12px var(--a); }
+.beats button[aria-pressed='true'] .bd { color: var(--text); }
+@media (max-width: 760px) { #beatBtn .chip-k { display: none; } }

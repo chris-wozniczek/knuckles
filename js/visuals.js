@@ -551,7 +551,7 @@ export class Visuals {
       ctx.arc(r.x + r.w * 0.88, r.y + r.w * 0.13, clamp(r.w * 0.025, 2, 3.5), 0, Math.PI * 2);
       ctx.fill();
     }
-    if (!scene.attract) this._label('JAB DOWN OR PINCH OVER A PAD', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
+    if (!scene.attract) this._label('TAP INTO A PAD WITH A FINGERTIP', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
     else this._label('MPC BANK A · 16 PADS', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
   }
 

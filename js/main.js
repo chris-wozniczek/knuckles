@@ -1,5 +1,5 @@
 import { CameraTracker, Gestures, synthHand } from './hands.js';
-import { AudioEngine, PADS, PROG, HAT_RATES, DEMO_PADS, KICKS, BPM, bassMidi } from './audio.js';
+import { AudioEngine, PADS, HAT_RATES, DEMO_PADS, BEATS, BEAT_ORDER, bassMidi } from './audio.js';
 import { Visuals, PALETTES } from './visuals.js';
 import { Recorder } from './recorder.js';
 import { NOTE_NAMES, SCALES, scaleNotes, chord, pcName } from './music.js';
@@ -11,7 +11,7 @@ const ease = (u) => u * u * (3 - 2 * u);
 
 const SEP = '<span class="sep">·</span>';
 const MODES = {
-  pads: { label: 'Pads', word: 'MPC', hint: `<b>Jab down</b> or <b>pinch</b> over a pad to hit it${SEP}bottom row = kick, snare, clap, rim` },
+  pads: { label: 'Pads', word: 'MPC', hint: `<b>Tap into a pad</b> with a fingertip to hit it${SEP}bottom row = kick, snare, clap, rim` },
   bass: { label: '808', word: '808', hint: `<b>Right hand</b> height = 808 note${SEP}<b>Pinch</b> = extra hit${SEP}<b>Left hand</b> open = drive${SEP}<b>Fist</b> = kick` },
   rolls: { label: 'Hat Rolls', word: 'ROLLS', hint: `<b>Right hand</b> up = faster hi-hat rolls${SEP}<b>Left hand</b> height = filter${SEP}<b>Hold a fist</b>, open it to <b>drop</b>` },
   flute: { label: 'Flute', word: 'FLUTE', hint: `<b>Right hand</b> up/down = melody${SEP}<b>Pinch</b> = accent${SEP}<b>Left hand</b> open = vibrato${SEP}<b>Fist</b> = boom` },
@@ -25,6 +25,7 @@ const LAYERS = {
 };
 
 const state = {
+  beat: 'tribal',
   mode: 'pads',
   root: 5,
   scale: 'Hijaz',
@@ -155,11 +156,54 @@ function applyKey() {
   if (audio.ready && state.source !== 'attract') audio.playPad(8, 0.8);
 }
 
+function setBeat(id, fromUser = false) {
+  const b = BEATS[id];
+  if (!b) return;
+  state.beat = id;
+  audio.setBeat(id);
+  state.root = b.root;
+  state.scale = b.scale;
+  $('#beatLabel').textContent = b.name;
+  document.querySelectorAll('#beats button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.beat === id)));
+  $('#keys').querySelectorAll('button').forEach((x, j) => x.setAttribute('aria-pressed', String(j === state.root)));
+  $('#scales').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.textContent === state.scale)));
+  audio.setKey(state.root, state.scale);
+  updateKeyLabel();
+  state.noteIdx = -1;
+  rebuildGuides();
+  if (fromUser && state.source !== 'attract') visuals.shout(b.name.toUpperCase(), 0, 0.8);
+  if (fromUser) showHint(`<b>${b.name}</b>${SEP}${b.desc}${SEP}press <b>B</b> for the next beat`);
+}
+function buildBeatPicker() {
+  const list = $('#beats');
+  BEAT_ORDER.forEach((id) => {
+    const b = BEATS[id];
+    const btn = document.createElement('button');
+    btn.dataset.beat = id;
+    btn.innerHTML = `<span class="bn">${b.name}</span><span class="bd">${b.desc}</span>`;
+    btn.setAttribute('aria-pressed', String(id === state.beat));
+    btn.onclick = () => { setBeat(id, true); toggleBeatPop(false); if (state.source === 'attract') startDemo(); };
+    list.appendChild(btn);
+  });
+}
+const beatBtn = $('#beatBtn');
+const beatPop = $('#beatPop');
+function toggleBeatPop(open = beatPop.hidden) {
+  beatPop.hidden = !open;
+  beatBtn.setAttribute('aria-expanded', String(open));
+  if (open) toggleKeyPop(false);
+}
+beatBtn.onclick = (e) => { e.stopPropagation(); toggleBeatPop(); };
+document.addEventListener('pointerdown', (e) => {
+  if (!beatPop.hidden && !beatPop.contains(e.target) && !beatBtn.contains(e.target)) toggleBeatPop(false);
+});
+
 const keyBtn = $('#keyBtn');
 const keyPop = $('#keyPop');
 function toggleKeyPop(open = keyPop.hidden) {
   keyPop.hidden = !open;
   keyBtn.setAttribute('aria-expanded', String(open));
+  if (open && beatPop) toggleBeatPop(false);
 }
 keyBtn.onclick = (e) => { e.stopPropagation(); toggleKeyPop(); };
 document.addEventListener('pointerdown', (e) => {
@@ -246,7 +290,7 @@ function padGrid() {
   const narrow = W < 760;
   const attract = state.source === 'attract';
   const top = 104, bottom = 132;
-  let size = Math.min(H - top - bottom - 16, W * (narrow ? 0.92 : 0.46), 560);
+  let size = Math.min(H - top - bottom - 16, W * (narrow ? 0.92 : attract ? 0.46 : 0.6), attract ? 560 : 720);
   let cx = W / 2, cy = top + (H - top - bottom) / 2;
   if (attract && !narrow) { size *= 0.84; cx = W * 0.7; }
   if (attract && narrow) { size = Math.min(size, H * 0.34); cy = 96 + size / 2; }
@@ -264,6 +308,26 @@ function padAt(nx, ny, g = padGrid()) {
     if (px >= r.x - m && px <= r.x + r.w + m && py >= r.y - m && py <= r.y + r.h + m) return i;
   }
   return -1;
+}
+function inPad(i, nx, ny, g, m) {
+  const r = padRect(i, g), px = nx * visuals.W, py = ny * visuals.H;
+  return px >= r.x - m && px <= r.x + r.w + m && py >= r.y - m && py <= r.y + r.h + m;
+}
+/* Touch-to-hit: a fingertip entering a pad hits it; it must leave (with some slack) before that pad re-triggers. */
+const padTouchState = { left: { pad: -1, t: 0 }, right: { pad: -1, t: 0 } };
+function padTouch(now, g) {
+  for (const side of ['left', 'right']) {
+    const h = gestures.hands[side], ps = padTouchState[side];
+    if (!h.present || !h.pts) { ps.pad = -1; continue; }
+    const tip = h.pts[8];
+    if (ps.pad >= 0 && inPad(ps.pad, tip.x, tip.y, g, g.gap + g.cell * 0.12)) continue;
+    const i = padAt(tip.x, tip.y, g);
+    if (i >= 0 && now - ps.t > 70) {
+      hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1));
+      ps.t = now;
+    }
+    ps.pad = i;
+  }
 }
 function padCenter(i, g) {
   const r = padRect(i, g);
@@ -313,9 +377,11 @@ gestures.on((type, side, d) => {
   const cam = state.source === 'camera';
   if (mode === 'pads') {
     if (!cam || (type !== 'strike' && type !== 'pinch')) return;
+    const ps = padTouchState[side];
+    if (performance.now() - ps.t < 180) return;
     const pt = type === 'pinch' ? d : gestures.hands[side].pts[8];
     const i = padAt(pt.x, pt.y);
-    if (i >= 0) hitPad(i, type === 'strike' ? d.v : 0.85);
+    if (i >= 0) { hitPad(i, type === 'strike' ? d.v : 0.85); ps.t = performance.now(); }
     return;
   }
   if (type === 'fist') {
@@ -400,17 +466,17 @@ function continuous(dt) {
 /* Clock + sequencer-synced visuals                                    */
 /* ------------------------------------------------------------------ */
 function clockPos(now) {
-  return audio.stepPos() ?? ((now / 1000) * BPM * 4) / 60;
+  return audio.stepPos() ?? ((now / 1000) * audio.beat.bpm * 4) / 60;
 }
 function onStep(step) {
   const s16 = step % 16, bar = Math.floor(step / 16) % 4, s32 = step % 32;
   const layers = LAYERS[state.mode];
   if (state.dropped) return;
-  if (layers.kick && KICKS[bar].includes(s16)) {
+  if (layers.kick && audio.beat.kicks[bar].includes(s16)) {
     visuals.kick(0.6);
     visuals.flashKey('808');
   }
-  if (layers.snare && s16 === 8) visuals.snare();
+  if (layers.snare && audio.beat.snares.includes(s16)) visuals.snare();
   if (state.mode === 'pads' && state.source !== 'camera') DEMO_PADS[s32]?.forEach((i) => flashPad(i, 0.85));
 }
 
@@ -455,7 +521,7 @@ function demoPose(mode, t, sp) {
   const frac = (sp % 16) / 16;
   if (mode === 'bass') {
     const g = state.guides.bass;
-    const idxFor = (b) => Math.min(g.notes.length - 1, Math.round((PROG[b % 4] / 7) * (g.notes.length - 1) * 0.9));
+    const idxFor = (b) => Math.min(g.notes.length - 1, Math.round((audio.beat.prog[b % 4] / 7) * (g.notes.length - 1) * 0.9));
     const cur = g.notes[idxFor(bar)].y, nxt = g.notes[idxFor(bar + 1)].y;
     R.y = lerp(cur, nxt, ease(clamp((frac - 0.86) / 0.14))) + PALM + 0.01 * Math.sin(t * 3);
     R.x = 0.68 + 0.03 * Math.sin(t * 0.8);
@@ -679,10 +745,11 @@ recBtn.onclick = async () => {
 /* ------------------------------------------------------------------ */
 window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea')) return;
-  if (e.key === 'Escape') { document.querySelectorAll('.modal').forEach(closeModal); toggleKeyPop(false); }
+  if (e.key === 'Escape') { document.querySelectorAll('.modal').forEach(closeModal); toggleKeyPop(false); toggleBeatPop(false); }
   else if (e.key === '?' || e.key === 'h') openModal($('#help'));
   else if (e.key >= '1' && e.key <= '4') setMode(MODE_ORDER[+e.key - 1], true);
   else if (e.key === 'm') muteBtn.click();
+  else if (e.key === 'b') setBeat(BEAT_ORDER[(BEAT_ORDER.indexOf(state.beat) + 1) % BEAT_ORDER.length], true);
   else if (e.key === 'r') recBtn.click();
   else if (e.key === 'c') startCamera();
 });
@@ -747,6 +814,7 @@ function tick(now) {
   }
 
   const grid = state.mode === 'pads' ? padGrid() : null;
+  if (grid && state.source === 'camera') padTouch(now, grid);
   const hover = [];
   if (grid && state.source === 'camera') {
     for (const side of ['left', 'right']) {
@@ -774,7 +842,7 @@ function tick(now) {
     sweep: state.sweep,
     drive: state.drive,
     dropped: state.dropped,
-    clock: { pos: sp, bpm: BPM, kicks: LAYERS[state.mode].kick ? KICKS : null },
+    clock: { pos: sp, bpm: audio.beat.bpm, kicks: LAYERS[state.mode].kick ? audio.beat.kicks : null },
     space: state.space,
     recording: recorder.active,
     modeLabel: MODES[state.mode].label,
@@ -798,6 +866,7 @@ window.addEventListener('resize', () => { visuals.resize(); moveIndicator(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) audio.leadOff(); });
 
 buildKeyPicker();
+buildBeatPicker();
 updateKeyLabel();
 rebuildGuides();
 setMode('pads');
