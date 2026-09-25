@@ -11,7 +11,7 @@ const ease = (u) => u * u * (3 - 2 * u);
 
 const SEP = '<span class="sep">·</span>';
 const MODES = {
-  pads: { label: 'Pads', word: 'MPC', hint: `<b>Flick your fingertip onto a pad</b> and stop on it to hit${SEP}bottom row = kick, snare, clap, rim` },
+  pads: { label: 'Pads', word: 'MPC', hint: `Put the ring between your thumb and index on a pad, then <b>pinch</b> to hit${SEP}bottom row = kick, snare, clap, rim` },
   bass: { label: '808', word: '808', hint: `<b>Right hand</b> height = 808 note${SEP}<b>Pinch</b> = extra hit${SEP}<b>Left hand</b> open = drive${SEP}<b>Fist</b> = kick` },
   rolls: { label: 'Hat Rolls', word: 'ROLLS', hint: `<b>Right hand</b> up = faster hi-hat rolls${SEP}<b>Left hand</b> height = filter${SEP}<b>Hold a fist</b>, open it to <b>drop</b>` },
   flute: { label: 'Flute', word: 'FLUTE', hint: `<b>Right hand</b> up/down = melody${SEP}<b>Pinch</b> = accent${SEP}<b>Left hand</b> open = vibrato${SEP}<b>Fist</b> = boom` },
@@ -309,45 +309,12 @@ function padAt(nx, ny, g = padGrid()) {
   }
   return -1;
 }
-/* A pad hits when the fingertip moves quickly and then stops on it (a drumstick landing), when it slides
-   into the grid from outside, or on a finger tap / jab / pinch. Gliding across pads without stopping never hits. */
-const PAD_FAST = 0.8, PAD_STOP = 0.28;
-const newPadTouch = () => ({ pad: -1, t: 0, inGrid: true, prev: null, v: 0, peak: 0, peakT: 0, lastNow: 0 });
-const padTouchState = { left: newPadTouch(), right: newPadTouch() };
-function inGrid(nx, ny, g, m) {
-  const px = nx * visuals.W, py = ny * visuals.H;
-  return px >= g.x0 - m && px <= g.x0 + g.size + m && py >= g.y0 - m && py <= g.y0 + g.size + m;
-}
-function padTouch(now, g) {
-  const aspect = visuals.W / visuals.H;
-  for (const side of ['left', 'right']) {
-    const h = gestures.hands[side], ps = padTouchState[side];
-    if (!h.present || !h.pts) { Object.assign(ps, newPadTouch(), { t: ps.t }); continue; }
-    const tip = h.pts[8];
-    const dt = clamp((now - ps.lastNow) / 1000, 0, 0.1);
-    ps.lastNow = now;
-    if (ps.prev && dt > 0) {
-      const sp = Math.hypot((tip.x - ps.prev.x) * aspect, tip.y - ps.prev.y) / dt;
-      ps.v = lerp(ps.v, sp, 1 - Math.exp(-dt * 25));
-    }
-    ps.prev = { x: tip.x, y: tip.y };
-    if (ps.v > PAD_FAST) { ps.peak = Math.max(ps.peak, ps.v); ps.peakT = now; }
-    const i = padAt(tip.x, tip.y, g);
-    if (!ps.inGrid) {
-      if (i >= 0) {
-        ps.inGrid = true;
-        if (now - ps.t > 70) { hitPad(i, clamp(0.72 + h.speed * 0.25, 0.6, 1)); ps.t = now; ps.peak = 0; }
-      }
-    } else if (!inGrid(tip.x, tip.y, g, g.gap + g.cell * 0.15)) ps.inGrid = false;
-    if (ps.peak > 0 && ps.v < PAD_STOP) {
-      if (i >= 0 && now - ps.peakT < Math.max(260, dt * 3000) && now - ps.t > 110) {
-        hitPad(i, clamp(0.6 + (ps.peak - PAD_FAST) / 3, 0.6, 1));
-        ps.t = now;
-      }
-      ps.peak = 0;
-    }
-    ps.pad = i;
-  }
+/* Pads are played by pinching: the point between thumb and index tips is the aim cursor, and a pinch
+   hits the pad under it. Nothing else (moving, fists, stray knuckles) can trigger a pad. */
+const padTouchState = { left: { t: 0 }, right: { t: 0 } };
+function aimPoint(h) {
+  const P = h.pts;
+  return { x: (P[4].x + P[8].x) / 2, y: (P[4].y + P[8].y) / 2 };
 }
 function padCenter(i, g) {
   const r = padRect(i, g);
@@ -396,12 +363,11 @@ gestures.on((type, side, d) => {
   const colorIdx = side === 'right' ? 0 : 2;
   const cam = state.source === 'camera';
   if (mode === 'pads') {
-    if (!cam || (type !== 'strike' && type !== 'pinch' && type !== 'tap')) return;
+    if (!cam || type !== 'pinch') return;
     const ps = padTouchState[side];
-    if (performance.now() - ps.t < (type === 'tap' ? 110 : 180)) return;
-    const pt = type === 'strike' ? gestures.hands[side].pts[8] : d;
-    const i = padAt(pt.x, pt.y);
-    if (i >= 0) { hitPad(i, type === 'pinch' ? 0.85 : d.v); ps.t = performance.now(); }
+    if (performance.now() - ps.t < 90) return;
+    const i = padAt(d.x, d.y);
+    if (i >= 0) { hitPad(i, 0.9); ps.t = performance.now(); }
     return;
   }
   if (type === 'fist') {
@@ -624,6 +590,7 @@ function maybeShowHelp() {
 
 function leaveAttract(source) {
   state.source = source;
+  document.body.dataset.source = source;
   document.body.classList.remove('attract');
   gestures.hands.left.reset();
   gestures.hands.right.reset();
@@ -636,10 +603,17 @@ async function startDemo() {
   setStatus('demo', 'Demo · simulated hands');
   if (ok) applyKey();
   maybeShowHelp();
-  showHint(`Demo mode: simulated hands are playing${SEP}press <b>Start camera</b> anytime with <b>C</b>`);
+  showHint(`Demo mode: simulated hands are playing${SEP}hit <b>Start camera</b> up top (or press <b>C</b>) to play with your hands`);
 }
 
 const startBtn = $('#startBtn');
+const camBtn = $('#camBtn');
+function startUi(text, loading) {
+  for (const b of [startBtn, camBtn]) {
+    b.classList.toggle('loading', loading);
+    b.querySelector('span').textContent = text;
+  }
+}
 async function startCamera() {
   if (state.source === 'camera') return;
   state.attractLocked = true;
@@ -648,15 +622,13 @@ async function startCamera() {
     startDemo();
     return;
   }
-  startBtn.classList.add('loading');
-  startBtn.querySelector('span').textContent = 'Waking up the camera…';
+  startUi('Waking up the camera…', true);
   const audioOk = ensureAudio();
   try {
     await tracker.startCamera();
   } catch (e) {
     console.warn(e);
-    startBtn.classList.remove('loading');
-    startBtn.querySelector('span').textContent = 'Start camera';
+    startUi('Start camera', false);
     const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
     toast(denied
       ? 'Camera access was blocked. Allow it from the address bar to play with your hands — here’s the demo meanwhile.'
@@ -666,21 +638,19 @@ async function startCamera() {
     return;
   }
   try {
-    startBtn.querySelector('span').textContent = 'Loading hand model…';
+    startUi('Loading hand model…', true);
     if (!tracker.landmarker) await tracker.load();
   } catch (e) {
     console.error(e);
     tracker.stop();
-    startBtn.classList.remove('loading');
-    startBtn.querySelector('span').textContent = 'Start camera';
+    startUi('Start camera', false);
     toast('The hand-tracking model couldn’t load (offline?). Playing the demo instead.', 6500);
     await audioOk;
     startDemo();
     return;
   }
   await audioOk;
-  startBtn.classList.remove('loading');
-  startBtn.querySelector('span').textContent = 'Start camera';
+  startUi('Start camera', false);
   leaveAttract('camera');
   setStatus('live', 'Live · looking for hands');
   state.lastHandsSeen = performance.now();
@@ -689,6 +659,7 @@ async function startCamera() {
 }
 
 startBtn.onclick = startCamera;
+camBtn.onclick = startCamera;
 $('#demoBtn').onclick = startDemo;
 document.querySelectorAll('#modes button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode, true); });
 
@@ -834,12 +805,14 @@ function tick(now) {
   }
 
   const grid = state.mode === 'pads' ? padGrid() : null;
-  if (grid && state.source === 'camera') padTouch(now, grid);
-  const hover = [];
+  const hover = [], cursors = [];
   if (grid && state.source === 'camera') {
     for (const side of ['left', 'right']) {
       const h = gestures.hands[side];
-      if (h.present && h.pts) hover.push(padAt(h.pts[8].x, h.pts[8].y, grid));
+      if (!h.present || !h.pts) continue;
+      const c = aimPoint(h);
+      hover.push(padAt(c.x, c.y, grid));
+      cursors.push({ x: c.x, y: c.y, close: clamp((0.9 - h.pinchRatio) / 0.6), pinched: h.pinched, presence: h.presence });
     }
   }
 
@@ -856,6 +829,7 @@ function tick(now) {
     padRect,
     padLabels: state.padLabels,
     hover,
+    cursors,
     rates: HAT_RATES,
     rateIdx: state.rateIdx,
     rateY,

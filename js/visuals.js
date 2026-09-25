@@ -551,7 +551,17 @@ export class Visuals {
       ctx.arc(r.x + r.w * 0.88, r.y + r.w * 0.13, clamp(r.w * 0.025, 2, 3.5), 0, Math.PI * 2);
       ctx.fill();
     }
-    if (!scene.attract) this._label('FLICK YOUR FINGERTIP ONTO A PAD AND STOP', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
+    for (const c of scene.cursors || []) {
+      const x = c.x * this.W, y = c.y * this.H, r = 22 - 15 * c.close;
+      ctx.globalAlpha = c.presence;
+      ctx.strokeStyle = c.pinched ? '#fff' : rgba(A, 0.95);
+      ctx.lineWidth = c.pinched ? 3 : 2;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = c.pinched ? rgba(A, 0.9) : 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.arc(x, y, c.pinched ? 6 : 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (!scene.attract) this._label('AIM THE RING · PINCH THUMB + INDEX TO HIT', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
     else this._label('MPC BANK A · 16 PADS', g.x0 + g.size / 2, g.y0 + g.size + 20, { align: 'center', size: 10, color: 'rgba(255,255,255,0.42)' });
   }
 
